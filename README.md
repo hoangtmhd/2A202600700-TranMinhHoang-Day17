@@ -90,3 +90,44 @@ Nếu các bạn là giảng viên hoặc reviewer:
 - `Rubric.md`: tiêu chí chấm điểm và bonus
 
 Track này được thiết kế để các bạn không chỉ “dùng agent”, mà còn bắt đầu nghĩ như một người thiết kế **memory system** cho agent production.
+
+---
+
+# BÁO CÁO KẾT QUẢ ĐÁNH GIÁ (BENCHMARK ANALYSIS REPORT)
+
+Dưới đây là kết quả đo lường và phân tích thực tế khi chạy thử nghiệm Baseline Agent và Advanced Agent ở chế độ **LIVE** kết nối trực tiếp với mô hình **Gemini 2.5 Flash** thật.
+
+### 1. Kết Quả Đo Lường Live Mode
+
+#### 1.1. Standard Benchmark (`conversations.json` - 10 phiên hội thoại ngắn)
+| Agent Name | Agent Tokens Only | Prompt Tokens Processed | Cross-Session Recall | Response Quality | Memory Growth (bytes) | Compactions |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Baseline Agent (Std)** | 1887 | 14494 | **0.11** | 0.11 | 0 | 0 |
+| **Advanced Agent (Std)** | 19901 | 59960 | **0.82** | 0.82 | 271 | 30 |
+
+#### 1.2. Long-Context Stress Benchmark (`advanced_long_context.json` - stress test hội thoại siêu dài)
+| Agent Name | Agent Tokens Only | Prompt Tokens Processed | Cross-Session Recall | Response Quality | Memory Growth (bytes) | Compactions |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Baseline Agent (Stress)** | 2346 | 36484 | **0.00** | 0.00 | 0 | 0 |
+| **Advanced Agent (Stress)** | 6106 | **17048** | **1.00** | 1.00 | 180 | **26** |
+
+---
+
+### 2. Phân Tích & Lý Giải Kết Quả (Reflection & Trade-offs)
+
+#### 2.1. Tại sao Advanced Agent có khả năng Recall vượt trội?
+* **Baseline Agent**: Khi chuyển sang thread mới để hỏi lại thông tin cũ, điểm Recall gần như bằng 0 (chỉ đạt 0.11 ở Standard test do sự ngẫu nhiên/trùng lặp). Điều này chứng minh Baseline Agent chỉ nhớ trong phạm vi phiên hiện tại và hoàn toàn quên chéo phiên.
+* **Advanced Agent**: Đạt điểm Recall xuất sắc (**0.82** ở Standard và **1.00** ở Stress). Lớp bộ nhớ **`User.md` bền vững** cho phép Agent liên tục trích xuất thông tin người dùng từ tin nhắn và lưu trữ lâu dài. Khi chuyển sang thread mới, hệ thống tự động tải nội dung `User.md` vào ngữ cảnh prompt, giúp Agent trả lời chính xác các câu hỏi cá nhân hóa và nhận biết chính xác thông tin đính chính (ví dụ: đổi nơi ở từ Huế sang Đà Nẵng).
+
+#### 2.2. Đánh đổi (Trade-off) về chi phí Prompt Token ở hội thoại ngắn
+* Tại cuộc hội thoại ngắn (Standard Benchmark), Advanced Agent tiêu thụ nhiều Prompt Token hơn Baseline Agent (59,960 tokens so với 14,494 tokens).
+* **Lý do**: Advanced Agent luôn mang theo hồ sơ người dùng `User.md` và tóm tắt hội thoại cũ trong System Prompt ở mỗi lượt chat. Khi hội thoại chưa đủ dài để tạo ra sự chênh lệch lớn, lượng thông tin mang thêm này làm gia tăng đáng kể số lượng Prompt Token processed.
+
+#### 2.3. Lợi thế tối ưu của Compact Memory ở hội thoại dài
+* Ở cuộc hội thoại stress test siêu dài, Baseline Agent tích lũy toàn bộ tin nhắn thô qua mỗi lượt, khiến Prompt Token tăng vọt lên tới 36,484 tokens.
+* Advanced Agent kích hoạt nén bộ nhớ 26 lần (`Compactions = 26`) giúp nén các tin nhắn cũ vượt ngưỡng thành một đoạn tóm tắt (`summary`). Nhờ đó, lượng Prompt Token processed chỉ còn **17,048 tokens** (tiết kiệm hơn **53% chi phí** so với Baseline) mà vẫn giữ được chất lượng phản hồi tối đa (Recall & Quality đạt 1.00).
+
+#### 2.4. Sự tăng trưởng của bộ nhớ (Memory Growth) & Hướng khắc phục
+* Kích thước file hồ sơ người dùng `User.md` tăng thêm khoảng 180 - 271 bytes sau quá trình chạy. Ở quy mô thực tế, file này sẽ phình to liên tục.
+* **Giải pháp nâng cao**: Để tránh tràn bộ nhớ trong thực tế, cần áp dụng cơ chế **Memory Decay** (giảm độ ưu tiên hoặc xóa bỏ thông tin cũ) hoặc **Confidence Threshold** (chỉ lưu các facts có độ tự tin cao) và giải quyết xung đột thông tin (Conflict/Correction Handling) để tối ưu dung lượng đĩa và token.
+
